@@ -270,21 +270,39 @@ def transcribe_file(
 
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
     segments_iter, info = model.transcribe(str(input_path), language=language)
+    total_secs = getattr(info, "duration", None)
+
+    try:
+        from tqdm import tqdm
+        bar = tqdm(
+            total=int(total_secs) if total_secs else None,
+            unit="s", unit_scale=True,
+            desc="转录进度", file=sys.stderr,
+            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
+        )
+    except ImportError:
+        bar = None
+
     segments: list[dict] = []
     for segment in segments_iter:
-        segments.append(
-            {
-                "start": float(segment.start),
-                "end": float(segment.end),
-                "text": segment.text.strip(),
-            }
-        )
+        segments.append({
+            "start": float(segment.start),
+            "end": float(segment.end),
+            "text": segment.text.strip(),
+        })
+        if bar is not None:
+            bar.n = int(segment.end)
+            bar.refresh()
+    if bar is not None:
+        bar.close()
+
     info_dict = {
         "language": getattr(info, "language", None),
         "language_probability": getattr(info, "language_probability", None),
         "duration": getattr(info, "duration", None),
     }
     return segments, info_dict
+
 
 
 def write_raw_txt(path: Path, segments: list[dict]) -> None:

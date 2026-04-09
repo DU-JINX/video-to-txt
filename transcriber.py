@@ -47,9 +47,10 @@ def transcribe(
         if p not in path:
             path = p + os.pathsep + path
     env = {**os.environ, 'PYTHONUTF8': '1', 'PATH': path}
-    result = subprocess.run(cmd, capture_output=True, env=env)
-    stdout = result.stdout.decode('utf-8', errors='replace')
-    stderr = result.stderr.decode('utf-8', errors='replace')
-    if result.returncode != 0:
-        raise RuntimeError(stderr or stdout)
+    # stdout 捕获用于 JSON 解析, stderr 直接透传到终端显示进度条
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None, env=env)
+    stdout_bytes, _ = proc.communicate()
+    stdout = stdout_bytes.decode('utf-8', errors='replace')
+    if proc.returncode != 0:
+        raise RuntimeError(stdout or f'exit code {proc.returncode}')
     return json.loads(stdout)
