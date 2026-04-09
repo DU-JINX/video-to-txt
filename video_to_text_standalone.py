@@ -300,60 +300,92 @@ def transcribe_file(
     language: str | None,
     hf_endpoint: str,
     cache_dir: Path,
+    chunk_minutes: int = 30,
 ) -> tuple[list[dict], dict]:
     WhisperModel = load_faster_whisper()
     os.environ.setdefault("HF_ENDPOINT", hf_endpoint)
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(cache_dir))
     ensure_dir(cache_dir)
 
-    model = WhisperModel(model_name, device=device, compute_type=compute_type)
-    segments_iter, info = model.transcribe(
-        str(input_path), language=language,
-        beam_size=1, vad_filter=True,
-    )
-    total_secs = getattr(info, "duration", None)
+    # 获取音频时长，决定是否分块
+    ffprobe = shutil.which("ffprobe")
+    total_secs = None
+    if ffprobe:
+        try:
+            probe = run_json([ffprobe, "-v", "error", "-show_entries",
+                              "format=duration", "-of", "json", str(input_path)])
+            total_secs = float(probe.get("format", {}).get("duration", 0) or 0)
+        except Exception:
+            pass
 
-    try:
-        from tqdm import tqdm
-        bar = tqdm(
-            total=int(total_secs) if total_secs else None,
-            unit="s", unit_scale=True,
-            desc="转录进度", file=sys.stderr,
-            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
-        )
-    except ImportError:
-        bar = None
+    chunk_secs = chunk_minutes * 60
+    # 时长未知或短于阈值，直接整段转录
+    if not total_secs or total_secs <= chunk_secs:
+        chunks = [(0, None)]
+    else:
+        starts = list(range(0, int(total_secs), chunk_secs))
+        chunks = [(s, min(s + chunk_secs, total_secs)) for s in starts]
 
-    segments: list[dict] = []
-    for segment in segments_iter:
-        segments.append({
-            "start": float(segment.start),
-            "end": float(segment.end),
-            "text": segment.text.strip(),
-        })
-        if bar is not None:
-            bar.n = int(segment.end)
-            bar.refresh()
-    if bar is not None:
-        bar.close()
+    all_segments: list[dict] = []
+    info_dict: dict = {}
 
-    # 主动释放模型，避免 Python 退出时 CUDA cleanup 崩溃
-    del model
-    try:
-        import gc
-        import torch
-        gc.collect()
-        torch.cuda.empty_cache()
-    except Exception:
-        pass
+    for chunk_idx, (start, end) in enumerate(chunks):
+        label = f"转录[{chunk_idx+1}/{len(chunks)}]"
+        print(f"  {label} {start:.0f}s - {end or '?'}s", file=sys.stderr)
 
-    info_dict = {
-        "language": getattr(info, "language", None),
-        "language_probability": getattr(info, "language_probability", None),
-        "duration": getattr(info, "duration", None),
-    }
-    return segments, info_dict
+        # 切片到临时 wav
+        chunk_path = input_path
+        tmp_chunk = None
+        if len(chunks) > 1:
+            import tempfile
+            tmp_chunk = Path(tempfile.mktemp(suffix=f"_chunk{chunk_idx}.wav"))
+            ffmpeg = shutil.which("ffmpeg")
+            cmd = [ffmpeg, "-y", "-i", str(input_path),
+                   "-ss", str(start), "-t", str(chunk_secs),
+                   "-vn", "-acodec", "copy", str(tmp_chunk)]
+            subprocess.run(cmd, check=True, capture_output=True)
+            chunk_path = tmp_chunk
 
+        try:
+            model = WhisperModel(model_name, device=device, compute_type=compute_type)
+            seg_iter, info = model.transcribe(
+                str(chunk_path), language=language,
+                beam_size=1, vad_filter=True,
+            )
+            chunk_total = getattr(info, "duration", None)
+            if not info_dict:
+                info_dict = {
+                    "language": getattr(info, "language", None),
+                    "language_probability": getattr(info, "language_probability", None),
+                    "duration": total_secs,
+                }
+            try:
+                from tqdm import tqdm
+                bar = tqdm(
+                    total=int(chunk_total) if chunk_total else None,
+                    unit="s", unit_scale=True,
+                    desc=label, file=sys.stderr,
+                    bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
+                )
+            except ImportError:
+                bar = None
+            for seg in seg_iter:
+                all_segments.append({
+                    "start": float(seg.start) + start,
+                    "end": float(seg.end) + start,
+                    "text": seg.text.strip(),
+                })
+                if bar is not None:
+                    bar.n = int(seg.end)
+                    bar.refresh()
+            if bar is not None:
+                bar.close()
+            del model
+        finally:
+            if tmp_chunk and tmp_chunk.exists():
+                tmp_chunk.unlink()
+
+    return all_segments, info_dict
 
 
 def write_raw_txt(path: Path, segments: list[dict]) -> None:
