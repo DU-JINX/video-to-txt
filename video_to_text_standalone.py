@@ -302,24 +302,22 @@ def transcribe_file(
     cache_dir: Path,
     chunk_minutes: int = 30,
 ) -> tuple[list[dict], dict]:
-    WhisperModel = load_faster_whisper()
     os.environ.setdefault("HF_ENDPOINT", hf_endpoint)
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(cache_dir))
     ensure_dir(cache_dir)
 
     # 获取音频时长，决定是否分块
-    ffprobe = shutil.which("ffprobe")
+    ffprobe_bin = shutil.which("ffprobe")
     total_secs = None
-    if ffprobe:
+    if ffprobe_bin:
         try:
-            probe = run_json([ffprobe, "-v", "error", "-show_entries",
+            probe = run_json([ffprobe_bin, "-v", "error", "-show_entries",
                               "format=duration", "-of", "json", str(input_path)])
             total_secs = float(probe.get("format", {}).get("duration", 0) or 0)
         except Exception:
             pass
 
     chunk_secs = chunk_minutes * 60
-    # 时长未知或短于阈值，直接整段转录
     if not total_secs or total_secs <= chunk_secs:
         chunks = [(0, None)]
     else:
@@ -328,59 +326,85 @@ def transcribe_file(
 
     all_segments: list[dict] = []
     info_dict: dict = {}
+    chunk_script = Path(__file__).parent / "_chunk_transcriber.py"
 
     for chunk_idx, (start, end) in enumerate(chunks):
         label = f"转录[{chunk_idx+1}/{len(chunks)}]"
-        print(f"  {label} {start:.0f}s - {end or '?'}s", file=sys.stderr)
+        duration_hint = f"{end - start:.0f}s" if end else "?"
+        print(f"  {label} {start:.0f}s-{end or '?'}s ({duration_hint})",
+              file=sys.stderr)
 
         # 切片到临时 wav
+        import tempfile
+        tmp_chunk: Path | None = None
         chunk_path = input_path
-        tmp_chunk = None
         if len(chunks) > 1:
-            import tempfile
-            tmp_chunk = Path(tempfile.mktemp(suffix=f"_chunk{chunk_idx}.wav"))
-            ffmpeg = shutil.which("ffmpeg")
-            cmd = [ffmpeg, "-y", "-i", str(input_path),
-                   "-ss", str(start), "-t", str(chunk_secs),
+            ffmpeg_bin = shutil.which("ffmpeg")
+            tmp_chunk = Path(tempfile.mktemp(suffix=f"_c{chunk_idx}.wav"))
+            cmd = [ffmpeg_bin, "-y", "-i", str(input_path),
+                   "-ss", str(start),
+                   "-t", str(chunk_secs) if end else "-1",
                    "-vn", "-acodec", "copy", str(tmp_chunk)]
             subprocess.run(cmd, check=True, capture_output=True)
             chunk_path = tmp_chunk
 
         try:
-            model = WhisperModel(model_name, device=device, compute_type=compute_type)
-            seg_iter, info = model.transcribe(
-                str(chunk_path), language=language,
-                beam_size=1, vad_filter=True,
-            )
-            chunk_total = getattr(info, "duration", None)
-            if not info_dict:
-                info_dict = {
-                    "language": getattr(info, "language", None),
-                    "language_probability": getattr(info, "language_probability", None),
-                    "duration": total_secs,
-                }
+            # 每块独立子进程, CUDA 上下文完全隔离
+            cmd = [sys.executable, "-X", "utf8", str(chunk_script),
+                   str(chunk_path),
+                   "--model", model_name,
+                   "--device", device,
+                   "--compute-type", compute_type]
+            if language:
+                cmd += ["--language", language]
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None)
             try:
                 from tqdm import tqdm
                 bar = tqdm(
-                    total=int(chunk_total) if chunk_total else None,
-                    unit="s", unit_scale=True,
-                    desc=label, file=sys.stderr,
+                    total=int(end - start) if end else None,
+                    unit="s", unit_scale=True, desc=label, file=sys.stderr,
                     bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
                 )
             except ImportError:
                 bar = None
-            for seg in seg_iter:
-                all_segments.append({
-                    "start": float(seg.start) + start,
-                    "end": float(seg.end) + start,
-                    "text": seg.text.strip(),
-                })
-                if bar is not None:
-                    bar.n = int(seg.end)
-                    bar.refresh()
+
+            stdout_lines: list[bytes] = []
+            # proc.stdout 最后一行才是 JSON, 前面是 stderr 混入的内容
+            for line in proc.stdout:
+                stdout_lines.append(line)
+            proc.wait()
+
             if bar is not None:
                 bar.close()
-            del model
+
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"块转录进程崩溃 exit={proc.returncode}: {label}"
+                )
+
+            # 取最后一个非空行解析 JSON
+            raw = b""
+            for line in reversed(stdout_lines):
+                line = line.strip()
+                if line:
+                    raw = line
+                    break
+            chunk_result = json.loads(raw.decode("utf-8", errors="replace"))
+            if not chunk_result.get("ok"):
+                raise RuntimeError(chunk_result.get("error", "未知错误"))
+
+            for seg in chunk_result["segments"]:
+                all_segments.append({
+                    "start": seg["start"] + start,
+                    "end": seg["end"] + start,
+                    "text": seg["text"],
+                })
+            if not info_dict:
+                info_dict = {
+                    "language": chunk_result.get("language"),
+                    "language_probability": None,
+                    "duration": total_secs,
+                }
         finally:
             if tmp_chunk and tmp_chunk.exists():
                 tmp_chunk.unlink()
