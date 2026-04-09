@@ -20,11 +20,13 @@ def transcribe(
     """调用 standalone 脚本转写单个视频, 返回结果 dict."""
     script = Path(__file__).parent / 'video_to_text_standalone.py'
     raw_dir = Path('outputs/raw').resolve()
+    audio_cache_dir = str(Path('outputs/audio_cache').resolve())
     cmd = [
         sys.executable, '-X', 'utf8', str(script),
         video_path,
         '--output-dir', output_dir,
         '--raw-dir', str(raw_dir),
+        '--audio-cache-dir', audio_cache_dir,
         '--whisper-model', model,
         '--whisper-device', device,
         '--whisper-compute-type', compute_type,

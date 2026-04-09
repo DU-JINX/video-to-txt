@@ -372,6 +372,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hf-endpoint", default=os.environ.get("HF_ENDPOINT", DEFAULT_HF_ENDPOINT), help="Hugging Face endpoint or mirror")
     parser.add_argument("--dry-run", action="store_true", help="Only materialize source + inspect media; do not transcribe or write final txt")
     parser.add_argument("--check-deps", action="store_true", help="Check runtime dependencies and print a machine-readable report")
+    parser.add_argument("--audio-cache-dir", default="./outputs/audio_cache", help="音频缓存目录，已提取的音频可跨次复用")
     return parser.parse_args()
 
 
@@ -440,11 +441,15 @@ def main() -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
 
-        # 提取音频, 大幅减少内存占用
-        import tempfile
-        tmp_audio_dir = Path(tempfile.mkdtemp(prefix='vtt_audio_'))
+        # 提取音频, 大幅减少内存占用；已有缓存则直接复用
+        audio_cache_dir = Path(args.audio_cache_dir).resolve()
+        ensure_dir(audio_cache_dir)
+        audio_path = audio_cache_dir / (local_path.stem + "_audio.wav")
         try:
-            audio_path = extract_audio(local_path, tmp_audio_dir)
+            if audio_path.exists():
+                print(f"  [跳过提取] 使用已有音频: {audio_path.name}", file=sys.stderr)
+            else:
+                audio_path = extract_audio(local_path, audio_cache_dir)
             segments, transcript_info = transcribe_file(
                 audio_path,
                 model_name=args.whisper_model,
@@ -454,10 +459,10 @@ def main() -> int:
                 hf_endpoint=args.hf_endpoint,
                 cache_dir=cache_dir,
             )
+            # 转录成功后清理音频缓存
+            audio_path.unlink(missing_ok=True)
         except Exception as exc:
             raise RuntimeError(f"Failed to transcribe media.\n{exc}") from exc
-        finally:
-            shutil.rmtree(tmp_audio_dir, ignore_errors=True)
 
         write_raw_txt(raw_txt_path, segments)
         raw_text = raw_txt_path.read_text(encoding="utf-8")
