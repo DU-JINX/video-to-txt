@@ -241,15 +241,53 @@ def extract_audio(input_path: Path, out_dir: Path) -> Path:
     if not ffmpeg:
         raise RuntimeError("ffmpeg not found.")
     audio_path = out_dir / (input_path.stem + "_audio.wav")
+
+    # 先用 ffprobe 获取时长，用于进度条 total
+    total_secs = None
+    try:
+        probe = ffprobe_json(input_path)
+        dur = probe.get("format", {}).get("duration")
+        if dur:
+            total_secs = float(dur)
+    except Exception:
+        pass
+
     cmd = [
         ffmpeg, "-y", "-i", str(input_path),
         "-vn", "-ac", "1", "-ar", "16000",
-        "-acodec", "pcm_s16le", str(audio_path),
+        "-acodec", "pcm_s16le",
+        "-progress", "pipe:1", "-nostats",
+        str(audio_path),
     ]
+
     try:
-        subprocess.run(cmd, check=True, capture_output=True)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(format_subprocess_error(exc)) from exc
+        from tqdm import tqdm
+        bar = tqdm(
+            total=int(total_secs) if total_secs else None,
+            unit="s", unit_scale=True,
+            desc="提取音频", file=sys.stderr,
+            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
+        )
+    except ImportError:
+        bar = None
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    for line in proc.stdout:
+        if bar is None:
+            continue
+        text = line.decode("utf-8", errors="replace").strip()
+        if text.startswith("out_time_ms="):
+            try:
+                ms = int(text.split("=", 1)[1])
+                bar.n = ms // 1_000_000
+                bar.refresh()
+            except ValueError:
+                pass
+    proc.wait()
+    if bar is not None:
+        bar.close()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg 提取音频失败, exit code {proc.returncode}")
     return audio_path
 
 
