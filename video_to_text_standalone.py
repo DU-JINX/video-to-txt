@@ -526,7 +526,9 @@ def main() -> int:
             "transcript_info": transcript_info,
         })
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
+        sys.stdout.flush()
+        # 强制退出，跳过 ctranslate2/CUDA cleanup，避免析构崩溃(exit code 0xC0000409)
+        os._exit(0)
     except Exception as exc:
         print(json.dumps({
             "ok": False,
