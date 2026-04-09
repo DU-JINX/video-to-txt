@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 from progress import is_done, load_progress, mark_done, mark_error
@@ -44,7 +45,18 @@ def main() -> None:
 
     total = len(files)
     done_count = sum(1 for f in files if is_done(progress, f['rel_path']))
-    print(f'[扫描] 共 {total} 个文件，已完成 {done_count} 个，待处理 {total - done_count} 个\n')
+    pending = total - done_count
+
+    batch_start = time.time()
+    print('=' * 60)
+    print(f'  任务开始时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f'  视频总数：    {total} 个')
+    print(f'  已完成：      {done_count} 个')
+    print(f'  待处理：      {pending} 个')
+    print('=' * 60 + '\n')
+
+    success_count = 0
+    fail_count = 0
 
     for i, f in enumerate(files, 1):
         key = f['rel_path']
@@ -53,7 +65,9 @@ def main() -> None:
             continue
 
         out_dir = build_output_dir(output_base, key)
-        print(f'[{i}/{total}] 处理中 ({f["size_mb"]} MB): {f["name"]}')
+        file_start = time.time()
+        print(f'[{i}/{total}] 开始处理: {f["name"]}  ({f["size_mb"]} MB)')
+        print(f'  开始时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
         try:
             result = transcribe(
                 f['full_path'], out_dir,
@@ -65,12 +79,26 @@ def main() -> None:
             )
             txt_path = result.get('final_txt_path')
             mark_done(progress, key, result)
-            print(f'  ✓ -> {txt_path or out_dir}\n')
+            success_count += 1
+            elapsed = time.time() - file_start
+            print(f'  结束时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
+            print(f'  耗时：    {elapsed:.1f} 秒')
+            print(f'  输出至：  {txt_path or out_dir}\n')
         except Exception as e:
             mark_error(progress, key, str(e))
-            print(f'  ✗ 失败: {e}\n')
+            fail_count += 1
+            elapsed = time.time() - file_start
+            print(f'  结束时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
+            print(f'  耗时：    {elapsed:.1f} 秒')
+            print(f'  ✗ 失败：  {e}\n')
 
-    print('[完成] 批处理结束')
+    total_elapsed = time.time() - batch_start
+    print('=' * 60)
+    print(f'  任务结束时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')
+    print(f'  总耗时：      {total_elapsed:.1f} 秒')
+    print(f'  成功：        {success_count} 个')
+    print(f'  失败：        {fail_count} 个')
+    print('=' * 60)
 
 
 if __name__ == '__main__':
