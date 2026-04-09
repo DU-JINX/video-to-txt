@@ -269,7 +269,10 @@ def transcribe_file(
     ensure_dir(cache_dir)
 
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
-    segments_iter, info = model.transcribe(str(input_path), language=language)
+    segments_iter, info = model.transcribe(
+        str(input_path), language=language,
+        beam_size=1, vad_filter=True,
+    )
     total_secs = getattr(info, "duration", None)
 
     try:
@@ -295,6 +298,16 @@ def transcribe_file(
             bar.refresh()
     if bar is not None:
         bar.close()
+
+    # 主动释放模型，避免 Python 退出时 CUDA cleanup 崩溃
+    del model
+    try:
+        import gc
+        import torch
+        gc.collect()
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
 
     info_dict = {
         "language": getattr(info, "language", None),
