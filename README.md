@@ -22,12 +22,22 @@
 
 ## 安装
 
-**前置要求：**
+### 前置依赖
 
-- Python 3.10+
-- [ffmpeg](https://ffmpeg.org/download.html)（需加入系统 PATH）
+| 依赖 | 说明 | 安装方式 |
+|------|------|----------|
+| Python 3.10+ | 运行环境 | [python.org](https://www.python.org/downloads/) |
+| ffmpeg | 视频/音频解码 | [ffmpeg.org](https://ffmpeg.org/download.html)，需加入系统 PATH |
+| CUDA（可选） | GPU 加速 | 安装 NVIDIA 驱动 + CUDA Toolkit 11.x / 12.x |
 
-**安装依赖：**
+### Python 包依赖
+
+| 包 | 用途 |
+|----|------|
+| `faster-whisper>=1.0.0` | 语音识别核心库 |
+| `opencc-python-reimplemented>=0.1.7` | 繁体转简体 |
+
+### 一键安装
 
 ```bash
 pip install -r requirements.txt

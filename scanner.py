@@ -6,14 +6,22 @@ from pathlib import Path
 VIDEO_EXTS = {'.mp4', '.mp3', '.mov', '.avi', '.mkv', '.flv', '.wmv'}
 
 
-def scan_videos(root: str) -> list[dict]:
-    """递归扫描目录, 返回所有媒体文件信息列表."""
+def scan_videos(root: str, exclude: list[str] | None = None) -> list[dict]:
+    """递归扫描目录, 返回所有媒体文件信息列表.
+
+    Args:
+        root: 根目录路径
+        exclude: 要排除的目录名列表（精确匹配任意层级目录名）
+    """
     root_path = Path(root)
+    exclude_set = set(exclude or [])
     files = []
     for f in root_path.rglob('*'):
         if not f.is_file():
             continue
         if f.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if exclude_set and any(p.name in exclude_set for p in f.parents):
             continue
         rel = f.relative_to(root_path)
         files.append({

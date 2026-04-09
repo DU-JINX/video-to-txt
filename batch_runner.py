@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--whisper-compute-type', default='float16', help='计算精度: int8/float16')
     p.add_argument('--language', default='zh', help='识别语言')
     p.add_argument('--dry-run', action='store_true', help='只扫描不转写')
+    p.add_argument('--exclude', nargs='*', default=[], help='排除的目录名，可多个')
     return p.parse_args()
 
 
@@ -41,7 +42,7 @@ def main() -> None:
     args = parse_args()
     output_base = Path(args.output_base).resolve()
     progress = load_progress()
-    files = scan_videos(args.nas_root)
+    files = scan_videos(args.nas_root, exclude=args.exclude)
 
     total = len(files)
     done_count = sum(1 for f in files if is_done(progress, f['rel_path']))
