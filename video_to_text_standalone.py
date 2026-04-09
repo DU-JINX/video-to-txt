@@ -235,6 +235,24 @@ def derive_output_filename(source: str, local_path: Path, output_name: str | Non
     return "video-transcript.txt"
 
 
+def extract_audio(input_path: Path, out_dir: Path) -> Path:
+    """用 ffmpeg 提取音频为 wav, 比原视频小很多, 避免 OOM."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found.")
+    audio_path = out_dir / (input_path.stem + "_audio.wav")
+    cmd = [
+        ffmpeg, "-y", "-i", str(input_path),
+        "-vn", "-ac", "1", "-ar", "16000",
+        "-acodec", "pcm_s16le", str(audio_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(format_subprocess_error(exc)) from exc
+    return audio_path
+
+
 def transcribe_file(
     input_path: Path,
     *,
@@ -391,9 +409,13 @@ def main() -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
 
+        # 提取音频, 大幅减少内存占用
+        import tempfile
+        tmp_audio_dir = Path(tempfile.mkdtemp(prefix='vtt_audio_'))
         try:
+            audio_path = extract_audio(local_path, tmp_audio_dir)
             segments, transcript_info = transcribe_file(
-                local_path,
+                audio_path,
                 model_name=args.whisper_model,
                 device=args.whisper_device,
                 compute_type=args.whisper_compute_type,
@@ -403,6 +425,8 @@ def main() -> int:
             )
         except Exception as exc:
             raise RuntimeError(f"Failed to transcribe media.\n{exc}") from exc
+        finally:
+            shutil.rmtree(tmp_audio_dir, ignore_errors=True)
 
         write_raw_txt(raw_txt_path, segments)
         raw_text = raw_txt_path.read_text(encoding="utf-8")
