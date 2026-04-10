@@ -24,7 +24,12 @@ def _detect_device() -> tuple[str, str]:
 
 def _build_output_dir(base: Path, key: str) -> str:
     """根据任务 key 构建镜像输出目录."""
-    out = base / Path(key).parent
+    p = Path(key)
+    # url/绝对路径模式下，直接用文件父目录名+文件名组合
+    if p.is_absolute() or key.startswith('http'):
+        out = base / p.parent.name
+    else:
+        out = base / p.parent
     out.mkdir(parents=True, exist_ok=True)
     return str(out)
 
@@ -111,7 +116,8 @@ def main() -> None:
                 dry_run=args.dry_run,
             )
             txt_path = result.get('final_txt_path')
-            mark_done(progress, key, result)
+            if not args.dry_run:
+                mark_done(progress, key, result)
             success_count += 1
             elapsed = time.time() - file_start
             print(f'  结束时间：{time.strftime("%Y-%m-%d %H:%M:%S")}')

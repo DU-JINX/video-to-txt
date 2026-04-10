@@ -26,11 +26,10 @@ def _build_env() -> dict:
 
     cuda_base = Path(r'C:\Program Files\NVIDIA GPU Computing Toolkit')
     if cuda_base.exists():
-        for ver in sorted(cuda_base.iterdir(), reverse=True):
-            bin_dir = ver / 'bin'
-            if bin_dir.exists():
-                extra.append(str(bin_dir))
-                break
+        # 结构: CUDA/v12.6/bin 或 CUDA/v11.x/bin
+        for dll in sorted(cuda_base.rglob('cublas64_*.dll'), reverse=True):
+            extra.append(str(dll.parent))
+            break
 
     if extra:
         path = env.get('PATH', '')
