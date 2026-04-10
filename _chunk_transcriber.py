@@ -41,7 +41,7 @@ def main() -> None:
             total=int(total) if total else None,
             unit="s", unit_scale=True,
             desc=args.label, file=sys.stderr,
-            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
+            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}]",
         )
     except ImportError:
         bar = None
