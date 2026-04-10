@@ -45,6 +45,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument('--language', default='zh', help='识别语言，如 zh/en')
     p.add_argument('--dry-run', action='store_true', help='只扫描/解析来源，不执行转写')
     p.add_argument('--exclude', nargs='*', default=[], help='（目录模式）排除的目录名，可多个')
+    p.add_argument('--include-dirs', nargs='*', default=None,
+                   help='只处理这些直接父目录名下的文件，如: 主机位 固定机位')
     return p.parse_args()
 
 
@@ -68,6 +70,7 @@ def main() -> None:
         input_dir=args.input_dir,
         url_file=args.url_file,
         exclude=args.exclude,
+        include_dirs=args.include_dirs,
     )
 
     progress = load_progress()

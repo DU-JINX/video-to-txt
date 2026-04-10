@@ -11,6 +11,7 @@ def resolve_sources(
     input_dir: str | None,
     url_file: str | None,
     exclude: list[str],
+    include_dirs: list[str] | None = None,
 ) -> list[dict]:
     """统一解析输入源，返回任务列表.
 
@@ -29,7 +30,7 @@ def resolve_sources(
     if source_mode in ('nas', 'local'):
         if not input_dir:
             raise ValueError(f'--source-mode {source_mode} 需要同时指定 --input-dir')
-        files = scan_videos(input_dir, exclude=exclude)
+        files = scan_videos(input_dir, exclude=exclude, include_dirs=include_dirs)
         return [
             {
                 'source': f['full_path'],
