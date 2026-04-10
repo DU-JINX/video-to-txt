@@ -1,17 +1,20 @@
+"""目录媒体文件递归扫描."""
 from __future__ import annotations
 
 from pathlib import Path
 
-# 支持的媒体扩展名（小写匹配）
 VIDEO_EXTS = {'.mp4', '.mp3', '.mov', '.avi', '.mkv', '.flv', '.wmv'}
 
 
 def scan_videos(root: str, exclude: list[str] | None = None) -> list[dict]:
-    """递归扫描目录, 返回所有媒体文件信息列表.
+    """递归扫描目录，返回所有媒体文件信息列表.
 
     Args:
-        root: 根目录路径
-        exclude: 要排除的目录名列表（精确匹配任意层级目录名）
+        root: 根目录路径.
+        exclude: 要排除的目录名列表（精确匹配任意层级目录名）.
+
+    Returns:
+        媒体文件信息字典列表，每项含 full_path/rel_path/name/stem/size_mb.
     """
     root_path = Path(root)
     exclude_set = set(exclude or [])

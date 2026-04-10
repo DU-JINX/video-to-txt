@@ -1,14 +1,14 @@
+"""转写进度持久化管理."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-# 进度记录文件路径
 PROGRESS_FILE = Path('outputs/logs/progress.json')
 
 
 def load_progress() -> dict:
-    """加载进度记录, 文件不存在则返回空字典."""
+    """加载进度记录，文件不存在则返回空字典."""
     if PROGRESS_FILE.exists():
         return json.loads(PROGRESS_FILE.read_text(encoding='utf-8'))
     return {}
@@ -30,7 +30,7 @@ def mark_done(progress: dict, key: str, result: dict) -> None:
 
 
 def mark_error(progress: dict, key: str, error: str) -> None:
-    """标记指定文件为失败, 记录错误信息."""
+    """标记指定文件为失败，记录错误信息."""
     progress[key] = {'status': 'error', 'error': error}
     save_progress(progress)
 

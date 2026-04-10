@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """轻量转录脚本: 每个音频块独立进程, CUDA 上下文彻底隔离."""
 from __future__ import annotations
 
@@ -10,36 +9,34 @@ from pathlib import Path
 
 
 def main() -> None:
+    """独立进程入口，转录单个音频块并将结果输出到 stdout."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("audio")
-    parser.add_argument("--model", default="small")
-    parser.add_argument("--device", default="cuda")
-    parser.add_argument("--compute-type", default="int8")
-    parser.add_argument("--language", default=None)
-    parser.add_argument("--label", default="转录")
+    parser.add_argument('audio')
+    parser.add_argument('--model', default='small')
+    parser.add_argument('--device', default='auto')
+    parser.add_argument('--compute-type', default='int8')
+    parser.add_argument('--language', default=None)
+    parser.add_argument('--label', default='转录')
     args = parser.parse_args()
 
     try:
         from faster_whisper import WhisperModel
     except ImportError:
-        print(json.dumps({"ok": False, "error": "faster-whisper not installed"}))
+        print(json.dumps({'ok': False, 'error': 'faster-whisper not installed'}))
         sys.stdout.flush()
         os._exit(1)
 
-    model = WhisperModel(
-        args.model, device=args.device, compute_type=args.compute_type,
-    )
+    model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type)
     seg_iter, info = model.transcribe(
-        args.audio, language=args.language,
-        beam_size=1, vad_filter=True,
+        args.audio, language=args.language, beam_size=1, vad_filter=True,
     )
-    total = getattr(info, "duration", None)
+    total = getattr(info, 'duration', None)
 
     try:
         from tqdm import tqdm
         bar = tqdm(
             total=int(total) if total else None,
-            unit="s", desc=args.label, file=sys.stderr,
+            unit='s', desc=args.label, file=sys.stderr,
         )
     except ImportError:
         bar = None
@@ -47,9 +44,9 @@ def main() -> None:
     segments = []
     for seg in seg_iter:
         segments.append({
-            "start": float(seg.start),
-            "end": float(seg.end),
-            "text": seg.text.strip(),
+            'start': float(seg.start),
+            'end': float(seg.end),
+            'text': seg.text.strip(),
         })
         if bar is not None:
             try:
@@ -62,16 +59,15 @@ def main() -> None:
         bar.close()
 
     result = {
-        "ok": True,
-        "segments": segments,
-        "language": getattr(info, "language", None),
-        "duration": getattr(info, "duration", None),
+        'ok': True,
+        'segments': segments,
+        'language': getattr(info, 'language', None),
+        'duration': getattr(info, 'duration', None),
     }
     print(json.dumps(result, ensure_ascii=False))
     sys.stdout.flush()
-    # 跳过 CUDA cleanup, 避免析构崩溃
     os._exit(0)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -6,15 +6,16 @@ import importlib.util
 import json
 import mimetypes
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
-from zoneinfo import ZoneInfo
 
 USER_AGENT = "video-to-text-standalone/1.0"
 DEFAULT_HF_ENDPOINT = "https://hf-mirror.com"
@@ -64,7 +65,14 @@ def check_dependencies() -> dict:
 
     if not command_exists("ffprobe"):
         issues.append("Missing command: ffprobe")
-        hints.append("Install ffmpeg first. Ubuntu/Debian: sudo apt-get update && sudo apt-get install -y ffmpeg")
+        sys_name = platform.system()
+        if sys_name == 'Windows':
+            hint = "Install ffmpeg: winget install --id Gyan.FFmpeg  或访问 https://ffmpeg.org/download.html"
+        elif sys_name == 'Darwin':
+            hint = "Install ffmpeg: brew install ffmpeg"
+        else:
+            hint = "Install ffmpeg: sudo apt-get install -y ffmpeg  # Ubuntu/Debian\n  sudo yum install -y ffmpeg  # CentOS/RHEL"
+        hints.append(hint)
 
     if not module_exists("faster_whisper"):
         issues.append("Missing Python package: faster-whisper")
@@ -262,13 +270,10 @@ def extract_audio(input_path: Path, out_dir: Path) -> Path:
 
     try:
         from tqdm import tqdm
-        bar = tqdm(
-            total=int(total_secs) if total_secs else None,
-            unit="s", unit_scale=True,
-            desc="提取音频", file=sys.stderr,
-            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
-        )
-    except ImportError:
+        _total = int(total_secs) if total_secs else None
+        _fmt = "{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]" if _total else None
+        bar = tqdm(total=_total, unit="s", unit_scale=True, desc="提取音频", file=sys.stderr, bar_format=_fmt)
+    except Exception:
         bar = None
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -326,7 +331,7 @@ def transcribe_file(
 
     all_segments: list[dict] = []
     info_dict: dict = {}
-    chunk_script = Path(__file__).parent / "_chunk_transcriber.py"
+    chunk_script = Path(__file__).parent / "video_to_txt" / "core" / "chunk_transcriber.py"
 
     for chunk_idx, (start, end) in enumerate(chunks):
         label = f"转录[{chunk_idx+1}/{len(chunks)}]"
@@ -335,7 +340,6 @@ def transcribe_file(
               file=sys.stderr)
 
         # 切片到临时 wav
-        import tempfile
         tmp_chunk: Path | None = None
         chunk_path = input_path
         if len(chunks) > 1:
@@ -360,12 +364,10 @@ def transcribe_file(
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None)
             try:
                 from tqdm import tqdm
-                bar = tqdm(
-                    total=int(end - start) if end else None,
-                    unit="s", unit_scale=True, desc=label, file=sys.stderr,
-                    bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]",
-                )
-            except ImportError:
+                _total = int(end - start) if end else None
+                _fmt = "{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]" if _total else None
+                bar = tqdm(total=_total, unit="s", unit_scale=True, desc=label, file=sys.stderr, bar_format=_fmt)
+            except Exception:
                 bar = None
 
             stdout_lines: list[bytes] = []
@@ -418,7 +420,7 @@ def write_raw_txt(path: Path, segments: list[dict]) -> None:
 
 
 def build_final_body(*, title: str, source: str, local_path: Path, inspect: dict, raw_text: str, transcript_info: dict) -> str:
-    generated_at = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S %Z")
+    generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     duration = inspect.get("duration_seconds")
     width = (inspect.get("video") or {}).get("width")
     height = (inspect.get("video") or {}).get("height")
