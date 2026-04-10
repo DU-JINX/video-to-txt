@@ -39,9 +39,7 @@ def main() -> None:
         from tqdm import tqdm
         bar = tqdm(
             total=int(total) if total else None,
-            unit="s", unit_scale=True,
-            desc=args.label, file=sys.stderr,
-            bar_format="{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}]",
+            unit="s", desc=args.label, file=sys.stderr,
         )
     except ImportError:
         bar = None
@@ -54,8 +52,11 @@ def main() -> None:
             "text": seg.text.strip(),
         })
         if bar is not None:
-            bar.n = int(seg.end)
-            bar.refresh()
+            try:
+                bar.n = int(seg.end)
+                bar.refresh()
+            except Exception:
+                pass
 
     if bar is not None:
         bar.close()
