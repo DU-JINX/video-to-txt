@@ -358,26 +358,16 @@ def transcribe_file(
                    str(chunk_path),
                    "--model", model_name,
                    "--device", device,
-                   "--compute-type", compute_type]
+                   "--compute-type", compute_type,
+                   "--label", label]
             if language:
                 cmd += ["--language", language]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=None)
-            try:
-                from tqdm import tqdm
-                _total = int(end - start) if end else None
-                _fmt = "{l_bar}{bar}| {n:.0f}/{total:.0f}s [{elapsed}<{remaining}]" if _total else None
-                bar = tqdm(total=_total, unit="s", unit_scale=True, desc=label, file=sys.stderr, bar_format=_fmt)
-            except Exception:
-                bar = None
 
             stdout_lines: list[bytes] = []
-            # proc.stdout 最后一行才是 JSON, 前面是 stderr 混入的内容
             for line in proc.stdout:
                 stdout_lines.append(line)
             proc.wait()
-
-            if bar is not None:
-                bar.close()
 
             if proc.returncode != 0:
                 raise RuntimeError(
