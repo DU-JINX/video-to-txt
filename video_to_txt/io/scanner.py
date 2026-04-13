@@ -32,8 +32,8 @@ def scan_videos(
             continue
         if exclude_set and any(p.name in exclude_set for p in f.parents):
             continue
-        # 若指定了 include_dirs，文件直接父目录名必须在其中
-        if include_set and f.parent.name not in include_set:
+        # 若指定了 include_dirs，任意祖先目录名在其中即可（支持多层结构）
+        if include_set and not any(p.name in include_set for p in f.parents):
             continue
         rel = f.relative_to(root_path)
         files.append({
